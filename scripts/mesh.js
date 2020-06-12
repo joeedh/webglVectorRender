@@ -146,7 +146,7 @@ define([
     constructor() {
       super(MeshTypes.EDGE);
       
-      this.h = undefined;
+      this.h1 = this.h2 = undefined;
       this.v1 = this.v2 = undefined;
       this.l = undefined;
     }
@@ -184,7 +184,9 @@ define([
       return util.merge(super.toJSON(), {
         v1 : this.v1.eid,
         v2 : this.v2.eid,
-        h  : this.h.eid,
+
+        h1 : this.h1.eid,
+        h2 : this.h2.eid,
         l  : this.l ? this.l.eid : -1
       });
     }
@@ -194,7 +196,9 @@ define([
       
       this.v1 = obj.v1;
       this.v2 = obj.v2;
-      this.h = obj.h;
+
+      this.h1 = obj.h1;
+      this.h2 = obj.h2;
       this.l = obj.l;
       
       return this;
@@ -581,10 +585,14 @@ define([
       e.v1 = v1;
       e.v2 = v2;
       
-      e.h = this.makeHandle(v1);
-      e.h.interp(v2, 0.5);
-      e.h.owner = e;
-      
+      e.h1 = this.makeHandle(v1);
+      e.h1.interp(v2, 1.0/2.0);
+      e.h1.owner = e;
+
+      e.h2 = this.makeHandle(v2);
+      e.h2.interp(v2, 2.0/3.0);
+      e.h2.owner = e;
+
       v1.edges.push(e);
       v2.edges.push(e);
       
@@ -615,7 +623,7 @@ define([
     }
     
     killEdge(e) {
-      if (e.eid == -1) {
+      if (e.eid === -1) {
         console.trace("Warning: edge", e.eid, "already freed", e);
         return;
       }
@@ -623,9 +631,12 @@ define([
       delete this.eidmap[e.eid];
       this.edges.remove(e);
       
-      delete this.eidmap[e.h.eid];
-      this.handles.remove(e.h);
-      
+      delete this.eidmap[e.h1.eid];
+      this.handles.remove(e.h1);
+
+      delete this.eidmap[e.h2.eid];
+      this.handles.remove(e.h2);
+
       e.eid = -1;
       
       e.v1.edges.remove(e);
@@ -728,7 +739,10 @@ define([
         for (var e of this.edges) {
           if ((e.v1.flag & MeshFlags.SELECT) && (e.v2.flag & MeshFlags.SELECT)) {
             this.edges.setSelect(e, true);
-            
+
+            this.handles.setSelect(e.h1, true);
+            this.handles.setSelect(e.h2, true);
+
             if (set_active) {
               this.edges.active = e;
             }
@@ -773,11 +787,17 @@ define([
       e.v2 = nv;
       nv.edges.push(e);
       
-      let h = new Vector2(e.h);
-      e.h.interp(e.v1, 0.5);
-      ne.h.load(h).interp(ne.v2, 0.5);
-      
-      nv.interp(h, 0.5);
+      let h1 = new Vector2(e.h1);
+      let h2 = new Vector2(e.h2);
+
+      //e.h.interp(e.v1, 1.0/3.0);
+      //ne.h.load(h).interp(ne.v2, 0.5);
+      //nv.interp(h, 0.5);
+
+      ne.h1.load(nv).interp(ne.v2, 1.0/3.0);
+      ne.h1.load(nv).interp(ne.v2, 2.0/3.0);
+
+      e.h2.load(e.v1).interp(nv, 2.0/3.0);
       
       if (e.flag & MeshFlags.SELECT) {
         this.edges.setSelect(ne, true);
@@ -914,17 +934,44 @@ define([
         for (let h of this.handles) {
           this.eidmap[h.eid] = h;
         }
-        
+
         for (let e of this.edges) {
-          e.h = this.eidmap[e.h];
-          e.h.owner = e;
+          if (e.h1 === undefined) {
+            e.h1 = this.makeHandle();
+            e.h2 = this.makeHandle();
+
+            e.h1.load(e.v1).interp(e.v2, 1.0/3.0);
+            e.h2.load(e.v1).interp(e.v2, 2.0/3.0);
+          } else {
+            e.h1 = this.eidmap[e.h1];
+            e.h2 = this.eidmap[e.h2];
+          }
+
+          e.h1.owner = e;
+          e.h2.owner = e;
         }
       } else {
         for (let e of this.edges) {
-          e.h = this.makeHandle(e.v1);
-          e.h.owner = e;
-          e.h.interp(e.v2, 0.5);
+          e.h1 = this.makeHandle();
+          e.h2 = this.makeHandle();
+
+          e.h1.load(e.v1).interp(e.v2, 1.0/3.0);
+          e.h2.load(e.v1).interp(e.v2, 2.0/3.0);
+          e.h1.owner = e;
+          e.h2.owner = e;
         }
+      }
+
+      let badh = [];
+      for (let h of this.handles) {
+        if (h.owner === undefined || typeof h.owner === "number") {
+          badh.push(h);
+        }
+      }
+
+      for (let h of badh) {
+        delete this.eidmap[h.eid];
+        this.handles.remove(h);
       }
       
       for (var v of this.verts) {

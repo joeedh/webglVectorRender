@@ -16,9 +16,20 @@ define([
   
   //params are passed to canvas.getContext as-is
   exports.init_webgl = function init_webgl(canvas, params) {
+    params.premultipliedAlpha = false;
+    params.alpha = false;
+    canvas.style["background-color"] = "red";
+
     var gl = canvas.getContext("webgl", params);
+
     gl.getExtension("OES_standard_derivatives");
-    
+    gl.getExtension("OES_texture_float");
+    gl.getExtension("WEBGL_draw_buffers");
+    gl.getExtension("ANGLE_instanced_arrays");
+    gl.getExtension("EXT_float_blend");
+    gl.getExtension("EXT_blend_minmax");
+
+
     return gl;
   }
 
@@ -175,7 +186,7 @@ define([
           return null;
       }
       
-      console.log("created shader", program);
+      console.warn("created shader", program);
 
       this.program = program;
 
@@ -264,7 +275,8 @@ define([
       
       gl.useProgram(this.program);
       this.gl = gl;
-      
+      let texslot = 0;
+
       for (var i=0; i<2; i++) {
         var us = i ? uniforms : this.uniforms;
         
@@ -272,7 +284,7 @@ define([
           var v = us[k];
           var loc = this.uniformloc(k)
           
-          if (loc == undefined) {
+          if (loc === undefined) {
               //stupid gl returns null if it optimized away the uniform,
               //so we must silently accept this
               //console.log("Warning, could not locate uniform", k, "in shader");
@@ -280,7 +292,8 @@ define([
           }
           
           if (v instanceof exports.Texture) {
-            v.bind(gl, this.uniformloc(k));
+            v.bind(gl, this.uniformloc(k), texslot);
+            texslot++;
           } else if (v instanceof Array) {
             switch (v.length) {
               case 2:
@@ -301,10 +314,10 @@ define([
             }
           } else if (v instanceof Matrix4) {
             v.setUniform(gl, loc);
-          } else if (typeof v == "number") { 
+          } else if (typeof v === "number") {
             gl.uniform1f(loc, v);
           } else {
-            throw new Error("Invalid uniform");
+            throw new Error("Invalid uniform " + k + " " + v);
           }
         }
       }
@@ -340,7 +353,7 @@ define([
           this[k] = undefined;
         }
       } else {
-        if (this._layers[name] == undefined) {
+        if (this._layers[name] === undefined) {
           console.trace("WARNING: gl buffer no in RenderBuffer!", name, gl);
           return;
         }
@@ -354,10 +367,14 @@ define([
   }
 
   exports.Texture = class Texture {
-    constructor() {
+    constructor(gltex) {
+      this.gltex = gltex;
     }
     
-    bind(gl, uniformloc) {
+    bind(gl, uniformloc, texslot) {
+      gl.activeTexture(gl.TEXTURE0 + texslot);
+      gl.bindTexture(gl.TEXTURE_2D, this.gltex);
+      gl.uniform1i(uniformloc, texslot);
     }
   }
 

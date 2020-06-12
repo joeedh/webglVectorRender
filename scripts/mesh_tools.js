@@ -406,37 +406,81 @@ define([
     
     exec(ctx) {
       var vs = new util.set(), es = new util.set();
-      
+      let fs = new util.set();
+
+      let mesh = ctx.mesh;
       var eidmap = {};
-      
-      for (var e of ctx.mesh.edges.selected) {
+
+      for (let f of mesh.faces) {
+        let ok = true;
+
+        for (let l of f.loops) {
+          if (!(l.v.flag & MeshFlags.SELECT)) {
+            ok = false;
+          }
+        }
+
+        if (ok) {
+          console.warn("Duplicating face!");
+          fs.add(f);
+        }
+      }
+
+      for (var e of mesh.edges.selected) {
         vs.add(e.v1);
         vs.add(e.v2);
         
         es.add(e);
       }
       
-      for (var v of ctx.mesh.verts.selected) {
+      for (var v of mesh.verts.selected) {
         vs.add(v);
       }
       
       for (var v of vs) {
-        var nv = ctx.mesh.makeVertex(v);
+        var nv = mesh.makeVertex(v);
         
         eidmap[v.eid] = nv;
-        ctx.mesh.setSelect(v, false);
-        ctx.mesh.setSelect(nv, true);
+        mesh.setSelect(v, false);
+        mesh.setSelect(nv, true);
       }
       
       for (var e of es) {
-        var ne = ctx.mesh.makeEdge(eidmap[e.v1.eid], eidmap[e.v2.eid]);
+        var ne = mesh.makeEdge(eidmap[e.v1.eid], eidmap[e.v2.eid]);
         eidmap[e.eid] = ne;
-        
-        ctx.mesh.setSelect(e, false);
-        ctx.mesh.setSelect(ne, true);
+
+        //ne.h.load(e.h);
+        ne.h1.load(e.h1);
+        ne.h2.load(e.h2);
+
+        mesh.setSelect(e.h1, false);
+        mesh.setSelect(e.h2, false);
+        mesh.setSelect(ne.h1, true);
+        mesh.setSelect(ne.h2, true);
+
+        mesh.setSelect(e, false);
+        mesh.setSelect(ne, true);
+      }
+
+      for (let f of fs) {
+        let vs = [];
+
+        for (let list of f.lists) {
+          for (let l of list) {
+            console.log(l.v.eid, eidmap[l.v.eid], eidmap);
+            vs.push(eidmap[l.v.eid]);
+          }
+
+          break;
+        }
+
+        let f2 = mesh.makeFace(vs);
+
+        mesh.setSelect(f, false);
+        mesh.setSelect(f2, true);
       }
       
-      ctx.mesh.regen_render();
+      mesh.regen_render();
       ctx.save();
     }
   }

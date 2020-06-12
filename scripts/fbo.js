@@ -101,11 +101,12 @@ define([
       "for (int i=0; i<FWID; i++) {",
       "  float fi = float(i) - float(FWID)*0.5;",
       "LINE",
-      //"  c.xyz *= c.w;",
-      "  sum += mix(c, vec4(1.0, 1.0, 1.0, 0.0), 1.0-c[3])*mul;",
+      //"  c.xyz /= c.w;",
+      "sum += c*mul;",
+      //"  sum += mix(c, vec4(1.0, 1.0, 1.0, 0.0), 1.0-c[3])*mul;",
       "}",
       //"  sum.xyz *= sum.w;",
-      "  gl_FragColor = sum;",
+      "  gl_FragColor = vec4(sum.rgb, sum[3]);",
       "}"
     ].join("\n").replace(/FWID/g, fwid);
     
@@ -142,7 +143,7 @@ define([
     
     function destroy(gl) {
       //already destroyed?
-      if (this.vbuf == undefined)
+      if (this.vbuf === undefined)
         return; 
       
       gl.deleteTexture(this.vbuf);
@@ -420,7 +421,47 @@ define([
       gl.bindFramebuffer(gl.FRAMEBUFFER, null);
     }
   ]);
-  
+
+  let fbopool = [];
+
+  function fboPoolHas(key) {
+    for (let item of fbopool) {
+      if (item[0] === key) {
+        console.log("fbo has", key)
+        return true;
+      }
+    }
+  }
+
+  function fboPoolAdd(key, fbo) {
+    console.log("fbo add", key)
+    fbopool.push([key, fbo]);
+  }
+
+  function fboPoolGet(key) {
+    for (let item of fbopool) {
+      if (item[0] === key) {
+        console.log("fbo get", key)
+
+        fbopool.remove(item);
+        return item[1];
+      }
+    }
+  }
+
+  exports.flushFBOPool = function(gl) {
+    for (let item of fbopool) {
+      item[1].destroy(gl);
+    }
+    fbopool.length = 0;
+  }
+
+  window._fbopool = fbopool;
+
+  function fbokey(w, h, key) {
+    return "" + (~~w) + ":" + (~~h) + ":" + key;
+  }
+
   var PathDrawer = exports.PathDrawer = util.Class([
     function constructor(path) {
       this.paths = path != undefined ? [path] : [];
@@ -431,11 +472,26 @@ define([
       
       this.fbo = undefined;
       this.recalc = 1;
+      this.renders = [];
       
       this.matrix = new vectormath.Matrix4();
       this.matrix2 = new vectormath.Matrix4();
     },
-    
+
+    function destroyFBOs() {
+      let key = fbokey(this.fbo.size[0], this.fbo.size[1], "1");
+      let key2 = fbokey(this.fbo2.size[0], this.fbo2.size[1], "2");
+
+      //this.fbo.destroy(gl);
+      //this.fbo2.destroy(gl);
+      fboPoolAdd(key, this.fbo);
+      fboPoolAdd(key2, this.fbo2);
+    },
+
+    function destroy(gl) {
+      this.destroyFBOs();
+    },
+
     function draw_common(gl, screenwidth, screenheight, blur) {
       this.mm.reset();
       for (var i=0; i<this.paths.length; i++) {
@@ -450,13 +506,26 @@ define([
       
       var wid = ~~(2.0*pad + bb[1][0] - bb[0][0]+1.0);
       var hgt = ~~(2.0*pad + bb[1][1] - bb[0][1]+1.0);
-      
-      if (this.fbo == undefined || this.fbo.size[0] != wid || this.fbo.size[1] != hgt) {
-        console.log("regenerating fbos");
+
+
+      if (this.fbo === undefined) {
+        let key = fbokey(wid, hgt, "1");
+
+        if (fboPoolHas(key)) {
+          console.log("Loading cache fbo");
+
+          let key2 = fbokey(wid, hgt, "2");
+
+          this.fbo = fboPoolGet(key);
+          this.fbo2 = fboPoolGet(key2);
+        }
+      }
+
+      if (this.fbo === undefined || this.fbo.size[0] !== wid || this.fbo.size[1] !== hgt) {
+        console.log("regenerating fbos", wid, hgt);
         
-        if (this.fbo != undefined) {
-          this.fbo.destroy(gl);
-          this.fbo2.destroy(gl);
+        if (this.fbo !== undefined) {
+          this.destroyFBOs();
         }
         
         console.log(wid, hgt);
@@ -471,8 +540,9 @@ define([
       this.fbo.bind(gl);
 
       gl.clearColor(0.0, 0.0, 0.0, 0.0);
-      gl.clearStencil(0);
-      gl.clear(gl.COLOR_BUFFER_BIT | gl.STENCIL_BUFFER_BIT);
+      if (STENCILMODE) gl.clearStencil(0);
+
+      gl.clear(gl.COLOR_BUFFER_BIT | gl.STENCIL_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
     },
     
     function draw_antialias(gl, screenwidth, screenheight) {
@@ -500,10 +570,10 @@ define([
       var filter = 0.8;
       
       gl.enable(gl.BLEND);
-      gl.blendEquation(gl.FUNC_ADD);
+      //gl.blendEquation(gl.FUNC_ADD);
       
-      gl.blendEquationSeparate(gl.FUNC_ADD, gl.FUNC_ADD);
-      gl.blendFuncSeparate(gl.ONE, gl.ONE, gl.ONE, gl.ONE);
+      //gl.blendEquationSeparate(gl.FUNC_ADD, gl.FUNC_ADD);
+      //gl.blendFuncSeparate(gl.ONE, gl.ONE, gl.ONE, gl.ONE);
       
       this.fbo.unbind(gl);
       
@@ -521,52 +591,86 @@ define([
       //really crappy temporal antialiasing
       var offdx = (Math.random()-0.5)*1.0*(1.0/off[0].length);
       var offdy = (Math.random()-0.5)*1.0*(1.0/off[0].length);
-      
+
+      /*
       for (var i=0; i<off[0].length; i++) {
         var w = off[1][i];
-        
+
         var dx = off[0][i][0], dy = off[0][i][1];
-        
+
         dx += offdx, dy += offdy;
         dx = (filter*dx)/this.fbo.size[0];
         dy = (filter*dy)/this.fbo.size[1];
-        
+
         mat.makeIdentity();
         mat.translate(dx, dy, 0.0);
         mat.multiply(startmat);
-        
+
         //mat.translate(0, screenheight, 0);
         //mat.scale(1, -1, 1);
-        
+
         //mat.translate(dx, dy, 0.0);
-        
+
         this.fbo.bind(gl);
-        
-        gl.clear(gl.COLOR_BUFFER_BIT | gl.STENCIL_BUFFER_BIT);
-        
+
+        if (STENCILMODE) gl.clear(gl.COLOR_BUFFER_BIT | gl.STENCIL_BUFFER_BIT);
+
         gl.disable(gl.BLEND);
-        
-        for (var i=0; i<this.paths.length; i++) {
-          var path = this.paths[i];
-          
-          if (path.points.length > 2) {
-            gl.clear(gl.STENCIL_BUFFER_BIT);
-            path.draw(gl, mat, 1.0, screenwidth, screenheight);
-          }
+
+        for (let r of this.renders) {
+          if (STENCILMODE) gl.clear(gl.STENCIL_BUFFER_BIT);
+          r.draw(gl, mat, 1.0, screenwidth, screenheight);
         }
-        
-        gl.enable(gl.BLEND);
-        
+
+        //gl.enable(gl.BLEND);
+
         this.fbo.unbind(gl);
         this.fbo2.bind(gl);
         this.fbo.draw(gl, 0, 0, this.fbo.size[0], this.fbo.size[1], undefined, w);
         this.fbo2.unbind(gl);
-      }
-      
+
+        break;
+      }*/
+
+      //*
+      this.fbo2.bind(gl);
+
+      if (STENCILMODE) gl.clear(gl.COLOR_BUFFER_BIT | gl.STENCIL_BUFFER_BIT);
+
       gl.blendFuncSeparate(
         gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA,
-        gl.ONE, gl.ONE//SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA
-      );
+        gl.SRC_ALPHA, gl.DST_ALPHA, //ONE_MINUS_SRC_ALPHA
+        //gl.ONE, gl.ZERO
+      );//*/
+      gl.enable(gl.BLEND);
+
+      for (let r of this.renders) {
+        if (STENCILMODE) gl.clear(gl.STENCIL_BUFFER_BIT);
+
+        r.draw(gl, startmat, 1.0, screenwidth, screenheight);
+      }
+
+      this.fbo2.unbind(gl);
+
+      //*
+      gl.blendFuncSeparate(
+        gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA,
+        gl.ZERO, gl.ONE
+      );//*/
+
+      var x = bb[0][0]-pad, y = bb[0][1]-pad;
+      this.fbo2.draw(gl, 2.0*x/screenwidth, 2.0*y/screenheight,
+        screenwidth, screenheight); //, gl.rectshader_premul);
+      return;
+      //*/
+
+      //*
+      gl.blendFuncSeparate(
+        gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA,
+        gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA
+        //gl.ONE, gl.ONE//SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA
+      );//*/
+
       //gl.blendColor(1.0, 0.0, 1.0, 1.0);
       //gl.disable(gl.BLEND);
       
@@ -592,22 +696,29 @@ define([
       
       gl.clearColor(0, 0, 0, 0);
       gl.clear(gl.COLOR_BUFFER_BIT);
-      
-      for (var i=0; i<this.paths.length; i++) {
-        var path = this.paths[i];
-        var fc = path.fillcolor;
-        
-        if (path.points.length > 2) {
-          gl.clear(gl.STENCIL_BUFFER_BIT);
-          path.draw(gl, mat, 1.0, screenwidth, screenheight);
-        }
+
+      gl.blendFuncSeparate(
+        gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA,
+        gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA,
+      );
+
+      for (let r of this.renders) {
+        if (STENCILMODE) gl.clear(gl.STENCIL_BUFFER_BIT);
+        r.draw(gl, mat, 1.0, screenwidth, screenheight);
       }
-      
+      //gl.colorMask(1,1,1,1);
+
+      /*gl.colorMask(0, 0, 0, 1);
+      gl.clearColor(0,0,0,1);
+      gl.clear(gl.COLOR_BUFFER_BIT);
+      gl.colorMask(1, 1, 1, 1);
+      //*/
+
       this.fbo.unbind(gl);
       this.fbo2.bind(gl);
       
       //gl.clearColor(fc[0], fc[1], fc[2], 0);
-      gl.clearColor(0, 0, 0, 0);
+      gl.clearColor(1, 1, 1, 0.0);
       gl.clear(gl.COLOR_BUFFER_BIT);
       
       //gl.bindFramebuffer(gl.FRAMEBUFFER, null);
@@ -617,23 +728,29 @@ define([
       this.fbo2.unbind(gl);
       
       //gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
-      
-      //*
-      gl.blendFuncSeparate(
-        gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA,
-        gl.ONE, gl.ZERO//gl.SRC_ALPHA, gl.DST_ALPHA
-        //gl.DST_ALPHA, gl.DST_ALPHA//gl.ZERO, gl.ONE
-      );
-      //*/
-      
+
       var blur2 = Math.min(blur, exports.MAX_BLUR), add = 0;
       if (blur > exports.MAX_BLUR) {
         add = Math.ceil(2.0*blur/exports.MAX_BLUR);
       }
       
       var blurshaders = exports.get_blurshader(gl, blur2);
-      
-      for (var i=0; i<3+add; i++) {
+
+      //*
+      gl.blendEquation(gl.FUNC_ADD);
+
+      gl.blendFuncSeparate(
+        gl.ONE, gl.ZERO,
+        gl.ONE, gl.ZERO
+        //gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA,
+        //gl.ONE, gl.ZERO//gl.SRC_ALPHA, gl.DST_ALPHA
+        //gl.ONE_MINUS_DST_ALPHA, gl.DST_ALPHA//gl.ZERO, gl.ONE
+        //gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA
+      );
+      //*/
+
+
+      for (var i=0; i<2+add; i++) {
         this.fbo2.bind(gl);
         this.fbo.draw(gl, 0, 0, this.fbo.size[0], this.fbo.size[1], blurshaders[0]);
         this.fbo2.unbind(gl);
@@ -644,16 +761,18 @@ define([
       }
       
       var x = bb[0][0]-pad, y = bb[0][1]-pad;
-      
-      //*
-      gl.blendEquationSeparate(gl.FUNC_ADD, gl.FUNC_ADD);
+
       gl.blendFuncSeparate(
         gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA,
-        gl.ZERO, gl.ONE
+        gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA,
+        //gl.ZERO, gl.ONE
+        //gl.ONE, gl.ZERO//gl.SRC_ALPHA, gl.DST_ALPHA
+        //gl.ONE_MINUS_DST_ALPHA, gl.DST_ALPHA//gl.ZERO, gl.ONE
+        //gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA
       );
       //*/
-      
-      this.fbo.draw(gl, 2.0*x/screenwidth, 2.0*y/screenheight, screenwidth, screenheight);      
+
+      this.fbo.draw(gl, 2.0*x/screenwidth, 2.0*y/screenheight, screenwidth, screenheight);
     },
     
     function draw(gl, screenwidth, screenheight, blur) {
@@ -661,11 +780,17 @@ define([
       
       this.draw_common(gl, screenwidth, screenheight, blur);
       
-      if (blur == 0) {
+      if (blur === 0) {
         this.draw_antialias(gl, screenwidth, screenheight);
       } else {
         this.draw_blur(gl, screenwidth, screenheight, blur);
       }
+
+      gl.blendFuncSeparate(
+        gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA,
+        gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA,
+        //gl.DST_ALPHA, gl.DST_ALPHA//gl.ZERO, gl.ONE
+      );
     }
   ]);
   

@@ -76,7 +76,7 @@ define([
       
       for (let f of mesh.faces) {
         g.beginPath();
-        g.fillStyle = "rgba(75, 75, 75, 0.1)";
+        g.fillStyle = "rgba(75, 75, 75, 0.5)";
         
         for (let list of f.lists) {
           let first = true;
@@ -86,19 +86,21 @@ define([
               first = false;
               g.moveTo(l.next.v[0], l.next.v[1]);
             } else {
-              g.quadraticCurveTo(l.e.h[0], l.e.h[1], l.next.v[0], l.next.v[1]);
+              //g.quadraticCurveTo(l.e.h1[0], l.e.h1[1], l.e.h2[0], l.e.h2[1], l.next.v[0], l.next.v[1]);
+              g.bezierCurveTo(l.e.h1[0], l.e.h1[1], l.e.h2[0], l.e.h2[1], l.next.v[0], l.next.v[1]);
             }
           }
           
           let l = list.start;
-          g.quadraticCurveTo(l.e.h[0], l.e.h[1], l.next.v[0], l.next.v[1]);
+          g.bezierCurveTo(l.e.h1[0], l.e.h1[1], l.e.h2[0], l.e.h2[1], l.next.v[0], l.next.v[1]);
+          //g.quadraticCurveTo(l.e.h1[0], l.e.h1[1], l.e.h2[0], l.e.h2[1], l.next.v[0], l.next.v[1]);
         }
         
         g.fill();
       }
       
       for (var e of mesh.edges) {
-        break;
+        //break;
         g.beginPath();
         g.strokeStyle = getElemColor(e, mesh.edges);
         g.moveTo(e.v1[0], e.v1[1]);
@@ -118,7 +120,10 @@ define([
         
         g.beginPath();
         g.moveTo(v[0], v[1]);
-        g.lineTo(e.v1[0]*0.5+e.v2[0]*0.5, (e.v1[1]+e.v2[1])*0.5);
+
+        let v2 = v === e.h1 ? e.v1 : e.v2;
+
+        g.lineTo(v2[0], v2[1]);
         g.stroke();
 
         g.beginPath();
