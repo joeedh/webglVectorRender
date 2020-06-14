@@ -7,6 +7,7 @@ define([
   var exports = _config = {};
   
   exports.BLUR = 128;
+  exports.DISTBLUR = 1;
   exports.DRAW_ELEMENTS = true;
   exports.EXAMPLE_OPTION = false;
   exports.DRAW_MASK_BUFFERS = false;

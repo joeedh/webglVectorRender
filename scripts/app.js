@@ -570,6 +570,8 @@ define([
     makeGUI() {
       this.gui = new ui.UI(STARTUP_FILE_NAME+"_gui1", config);
       this.gui.slider("BLUR", "Blur", 0, 0, 64, true, false);
+      this.gui.slider("DISTBLUR", "DistBlur", 0, 0, 256, true, false);
+
       this.gui.check("DRAW_ELEMENTS", "Draw Elements");
       this.gui.check("DRAW_MASK_BUFFERS", "Draw Mask Buffers");
 

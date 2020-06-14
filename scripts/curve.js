@@ -566,6 +566,7 @@ define([
       uniform float texw, texh;
       uniform sampler2D tex;
       uniform sampler2D mask;
+      uniform float distBlur;
       uniform float T;
       
       varying vec2 vCo;
@@ -887,7 +888,12 @@ define([
      // p[1] /= (vUv[3] - vUv[2]) * 2.0;
       //p[2] /= (vUv[3] - vUv[2]) * 2.0;
       
-      gl_FragColor = vec4(vColor, 1.0);
+      dis = abs(dis);
+      dis /= distBlur;
+      dis = min(dis, 1.0);
+      dis = dis*dis*(3.0 - 2.0*dis);
+      
+      gl_FragColor = vec4(vColor*dis, 1.0); //dis);
 #endif
 
         dis = abs(dis);
@@ -1076,6 +1082,7 @@ define([
         texh: this.texh,
         tex: this.gltex,
         mask: this.texFbo ? this.texFbo.texColor : undefined,
+        distBlur : config.DISTBLUR,
         T: window.T
       });
 
@@ -1410,7 +1417,7 @@ define([
 
       for (let r of this.renders) {
         if (r.texFbo && config.DRAW_MASK_BUFFERS) {
-          r.texFbo.draw(gl, 0.25, 0.25, 300, 300);
+          r.texFbo.draw(gl, 0.05, 0.05, 500, 500);
         }
       }
       gl.enable(gl.BLEND);
