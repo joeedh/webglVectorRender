@@ -25,7 +25,7 @@ define([
     
     return cls.prototype;
   }
-  
+
   var exports = _math = {};
   
   var Vector2 = vectormath.Vector2, Vector3 = vectormath.Vector3;
@@ -132,6 +132,29 @@ define([
       FLOAT_MIN = 1e-05;
       FLOAT_MAX = 1000000.0;
       console.log("Floating-point 16-bit system detected!");
+  }
+
+  let aabb_overlap_area = exports.aabb_overlap_area = function aabb_overlap_area(pos1, size1, pos2, size2) {
+    let r1=0.0, r2=0.0;
+
+    for (let i=0; i<2; i++) {
+      let a1 = pos1[i], a2 = pos2[i];
+      let b1 = pos1[i] + size1[i];
+      let b2 = pos2[i] + size2[i];
+
+      if (b1 >= a2 && b2 >= a1) {
+        let r = Math.abs(a2 - b1);
+        r = Math.min(r, Math.abs(a1 - b2));
+
+        if (i) {
+          r2 = r;
+        } else {
+          r1 = r;
+        }
+      }
+    }
+
+    return r1*r2;
   }
 
   var _static_grp_points4=new Array(4);

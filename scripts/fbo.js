@@ -79,7 +79,7 @@ define([
       
       "void main() {",
       " vUv = uv;",
-      "vec2 p = vec2(2.0,2.0)*(position/iRes)-1.0;",
+      "vec2 p = vec2(2.0, 2.0) * (position/iRes) - 1.0;",
       " gl_Position = matrix * vec4(p, 0.0, 1.0);",
       "}"
     ].join("\n");
@@ -172,24 +172,21 @@ define([
       gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(uvs), gl.STATIC_DRAW);
     },
     
-    function draw(gl, tex, x, y, resx, resy, mul) {
-      x = x == undefined ? 0 : x;
-      y = y == undefined ? 0 : y;
-      
+    function draw(gl, tex, x=0, y=0, resx, resy, mul) {
       if (this.regen) {
         this.regen = 0;
         this.gen_buffers(gl);
       }
       
-      if (gl.rectshader == undefined) {
+      if (gl.rectshader === undefined) {
         this.compile_shader(gl);
         this.compile_premul_shader(gl);
       }
       
       this.matrix.makeIdentity();
       this.matrix.translate(x, y, 0.0);
-      
-      if (this.shader == undefined) {
+
+      if (this.shader === undefined) {
         this.shader = gl.rectshader;
       }
       
@@ -198,13 +195,14 @@ define([
       
       this.params.iRes[0] = resx, this.params.iRes[1] = resy;
       
-      if (mul != undefined) {
+      if (mul !== undefined) {
         this.params.mul = mul;
       } else {
         this.params.mul = 1.0;
       }
       
       this.shader.bind(gl, this.params);
+
       if (mul != undefined) {
         gl.uniform1f(this.shader.uniformloc("mul"), mul);
       }
@@ -328,7 +326,7 @@ define([
       this._lastsize = new vectormath.Vector4();
     },
     
-    function draw(gl, x, y, resx, resy, shader, mul) {
+    function draw(gl, x=0, y=0, resx=this.size[0], resy=this.size[1], shader, mul=1.0) {
       var key = this.size[0] + "," + this.size[1];
       var rect;
       
@@ -339,7 +337,7 @@ define([
         cached_rects[key] = rect;
       }
       
-      if (shader != undefined) {
+      if (shader !== undefined) {
         rect.shader = shader;
       } else {
         rect.shader = gl.rectshader;
@@ -356,6 +354,7 @@ define([
       
       this.fbuf = gl.createFramebuffer();
       this.colortex = gl.createTexture();
+      this.texColor = new webgl.Texture(this.colortex);
       
       gl.bindTexture(gl.TEXTURE_2D, this.colortex);
       gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
@@ -364,7 +363,7 @@ define([
       gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
 
       gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, this.size[0], this.size[1], 0, gl.RGBA,
-                    gl.UNSIGNED_BYTE, new Uint8Array(this.size[0]*this.size[1]*4));
+                    gl.FLOAT, new Float32Array(this.size[0]*this.size[1]*4));
       
       /*
       gl.bindTexture(gl.TEXTURE_2D, this.stenciltex);

@@ -321,6 +321,7 @@ define([
       super(MeshTypes.FACE);
       this.lists = [];
       this.blur = 0.0;
+      this.fillColor = new Vector4([0.5,0.5,0.5,1]);
     }
     
     toJSON() {
@@ -331,8 +332,9 @@ define([
       }
       
       return Object.assign({
-        lists : lists,
-        blur  : this.blur
+        lists     : lists,
+        blur      : this.blur,
+        fillColor : this.fillColor
       }, super.toJSON());
     }
     
@@ -341,7 +343,8 @@ define([
       
       this.lists = obj.lists;
       this.blur = obj.blur || 0.0;
-      
+      this.fillColor = new Vector4(obj.fillColor);
+
       return this;
     }
     
@@ -589,7 +592,7 @@ define([
       e.h1.interp(v2, 1.0/2.0);
       e.h1.owner = e;
 
-      e.h2 = this.makeHandle(v2);
+      e.h2 = this.makeHandle(v1);
       e.h2.interp(v2, 2.0/3.0);
       e.h2.owner = e;
 

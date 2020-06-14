@@ -12,10 +12,72 @@ define([
   var exports = _app = {};
 
   let Vector2 = vectormath.Vector2;
+  let Vector4 = vectormath.Vector4;
 
   window.STARTUP_FILE_NAME = "startup_file_rs32";
 
   window._config = config;
+
+  function css2color(s) {
+    let ret = new Vector4();
+    ret[3] = 1.0;
+
+    if (s.startsWith("#")) {
+      s = s.slice(1, s.length).trim();
+      let r=0, g=0, b=0, a=1.0;
+
+      switch (s.length) {
+        case 4:
+        case 3:
+          r = parseInt(s[0], 16) / 15;
+          g = parseInt(s[1], 16) / 15;
+          b = parseInt(s[2], 16) / 15;
+
+          if (s.length == 4) {
+            a = parseInt(s[3], 16) / 15;
+          }
+          break;
+        case 8:
+        case 6:
+          r = parseInt(s.slice(0, 2), 16)/255;
+          g = parseInt(s.slice(2, 4), 16)/255;
+          b = parseInt(s.slice(4, 6), 16)/255;
+          if (s.length == 8) {
+            a = parseInt(s.slice(6, 8), 16)/255;
+          }
+          break;
+      }
+
+      ret[0] = r;
+      ret[1] = g;
+      ret[2] = b;
+      ret[3] = a;
+    } else if (s.startsWith("rgb")) {
+      let r,g,b, a=1.0;
+
+      let ret2 = s;
+
+      let has_a = ret2.startsWith("rgba");
+      ret2 = ret2.slice(ret2.search("\\(")+1, ret2.search("\\)"));
+
+      ret2 = ret2.replace(/[ \t]/g, "").split(",");
+      r = parseInt(ret2[0])/255;
+      g = parseInt(ret2[1])/255;
+      b = parseInt(ret2[2])/255;
+
+      if (has_a) {
+        a = parseFloat(ret2[3]);
+      }
+
+      ret[0] = r;
+      ret[1] = g;
+      ret[2] = b;
+      ret[3] = a;
+    }
+
+    return ret;
+  }
+  window.css2color = css2color;
 
   var AppState = exports.AppState = class AppState extends events.EventHandler {
     constructor(gl, canvas) {
@@ -65,6 +127,8 @@ define([
       let lastv, startv, lastv2;
 
       let debug = 0;
+
+
 
       function moveTo(x, y, rel=false) {
         lastv2 = lastv;
@@ -323,8 +387,12 @@ define([
         }
       }
 
+
+      let fillColor = new Vector4([0,0,0, 1]);
+
       function closePath() {
         let f = mesh1.makeFace(vs);
+        f.fillColor.load(fillColor);
         vs = [];
       }
 
@@ -340,6 +408,11 @@ define([
       for (let child of g.children) {
         //console.log(child.tagName);
         if (child.tagName.toUpperCase() === "PATH") {
+          let fill = child.getAttribute("fill");
+          if (fill) {
+            fillColor.load(css2color(fill));
+          }
+
           let path = child.getAttribute("d");
 
           consolelog(path);
@@ -498,7 +571,19 @@ define([
       this.gui = new ui.UI(STARTUP_FILE_NAME+"_gui1", config);
       this.gui.slider("BLUR", "Blur", 0, 0, 64, true, false);
       this.gui.check("DRAW_ELEMENTS", "Draw Elements");
+      this.gui.check("DRAW_MASK_BUFFERS", "Draw Mask Buffers");
 
+      this.gui.button("clear", "Clear", () => {
+        this.mesh = new mesh.Mesh();
+        this.regen();
+        window.redraw_all();
+      });
+
+      this.gui.button("load_tiger", "Load Tiger", () => {
+        this.loadTiger();
+      });
+
+      /*
       this.gui.button("load_image", "Load Image", () => {
         console.log("load image!");
         image.loadImageFile().then((imagedata) => {
@@ -507,14 +592,19 @@ define([
           this.image = imagedata;
           window.redraw_all();
         });
-      });
+      });//*/
       
       this.gui.load();
     }
     
     setsize() {
       var w = window.innerWidth, h = window.innerHeight;
-      
+
+      let dpi = devicePixelRatio;
+
+      w = ~~(w*dpi);
+      h = ~~(h*dpi);
+
       var eventfire = this.canvas2d.width !== w || this.canvas2d.height !== h;
       
       if (this.canvas2d.width !== w) {
@@ -524,6 +614,9 @@ define([
         if (this.canvas) {
           this.canvas.width = w;
           this.canvas.height = h;
+
+          this.canvas.style["width"] = (w/dpi) + "px";
+          this.canvas.style["height"] = (h/dpi) + "px";
         }
       }
       
@@ -639,8 +732,20 @@ define([
         let tmp = vscache.next();
 
         v2.sub(v1); h1.sub(v1); h2.sub(v1);
+        let arc = h1.vectorLength() + h2.vectorDistance(h1) + v2.vectorDistance(h2);
 
-        let steps=4, s=0, ds = 1.0 / steps;
+        let steps=2;
+
+        if (arc > 400) {
+          steps += 2;
+        } else if (arc > 200) {
+          steps += 2;
+        }
+
+        let s=0, ds = 1.0 / steps;
+
+        //steps = Math.max(~~(arc/300.0), 2.0);
+        //console.log(steps);
 
         for (let i=0; i<steps; i++, s += ds) {
           let a = cubic2(h1, h2, v2, s);
@@ -648,6 +753,8 @@ define([
 
           let b = cubic2(h1, h2, v2, s+ds);
           let db = dcubic2(h1, h2, v2, s+ds);
+
+          //da.zero(); db.zero();
 
           da.mulScalar(ds);
           db.mulScalar(ds);
@@ -673,7 +780,8 @@ define([
       let mesh = this.mesh;
       for (let f of mesh.faces) {
         let path = this.pmesh.make_path();
-        
+        path.fillcolor.load(f.fillColor);
+
         for (let list of f.lists) {
           for (let l of list) {
             let h = l.e.h1;
@@ -729,7 +837,7 @@ define([
       gl.colorMask(1, 1, 1, 1);
       gl.flush();
 
-      //window.redraw_all();
+      window.redraw_all();
     }
     
     genFile() {

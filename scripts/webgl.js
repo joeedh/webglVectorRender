@@ -18,6 +18,7 @@ define([
   exports.init_webgl = function init_webgl(canvas, params) {
     params.premultipliedAlpha = false;
     params.alpha = false;
+    params.antialias = false;
     canvas.style["background-color"] = "red";
 
     var gl = canvas.getContext("webgl", params);
@@ -290,7 +291,11 @@ define([
               //console.log("Warning, could not locate uniform", k, "in shader");
               continue;
           }
-          
+
+          if (v === undefined || v === null) {
+            continue;
+          }
+
           if (v instanceof exports.Texture) {
             v.bind(gl, this.uniformloc(k), texslot);
             texslot++;
