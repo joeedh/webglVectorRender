@@ -11,6 +11,7 @@ define([
   exports.DRAW_ELEMENTS = true;
   exports.EXAMPLE_OPTION = false;
   exports.DRAW_MASK_BUFFERS = false;
+  exports.ENABLE_MASK = true;
 
   exports.copy = function() {
     let ret = JSON.parse(JSON.stringify(this));

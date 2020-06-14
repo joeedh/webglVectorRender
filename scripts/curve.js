@@ -893,7 +893,7 @@ define([
       dis = min(dis, 1.0);
       dis = dis*dis*(3.0 - 2.0*dis);
       
-      gl_FragColor = vec4(vColor*dis, 1.0); //dis);
+      gl_FragColor = vec4(mix(vec3(1.0, 1.0, 1.0)*0.9, vec3(1.0,0.4,0.4)*0.5, 1.0-dis), 1.0);
 #endif
 
         dis = abs(dis);
@@ -915,6 +915,9 @@ define([
         float dis2 = dis*0.01;
         sdis = fract(sdis*8.0);
         
+        float shade = max(min(dis/distBlur, 1.0), 0.0);
+        shade = shade*shade*(3.0 - 2.0*shade);
+        
         dis = max(min(dis/1.0, 1.0), 0.0);
 #endif
         
@@ -929,7 +932,7 @@ define([
         gl_FragColor = vec4(minfi, minfi2, minfi3, dis);
 #else
 #ifndef USE_MASK
-        gl_FragColor = vec4(vColor, dis);
+      gl_FragColor = vec4(mix(vec3(1.0, 1.0, 1.0)*0.9, vec3(1.0,0.4,0.4)*0.5, 1.0-shade), dis);
 #endif
 #endif
       }        
@@ -966,60 +969,39 @@ define([
         return;
       }
 
-
-      if (!STENCILMODE) {
-        gl.disable(gl.DEPTH_TEST);
-        gl.depthMask(false);
-        /*
-        gl.enable(gl.DEPTH_TEST);
-        gl.depthMask(true);
-        gl.depthRange(0.0, 1.0);
-        gl.depthFunc(gl.LESS);
-        gl.clearDepth(1.0);
-        gl.clear(gl.DEPTH_BUFFER_BIT);
-        //*/
-        gl.disable(gl.CULL_FACE);
-        gl.disable(gl.STENCIL_TEST);
-
-
-        gl.enable(gl.BLEND);
-        //gl.disable(gl.BLEND);
-
-        //gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
-
-        this.draw2(gl, matrix, "vertex", 1, alpha);
-
-        gl.disable(gl.DEPTH_TEST);
-        gl.depthMask(false);
-
-        //gl.depthMask(false);
-        //gl.disable(gl.DEPTH_TEST);
-        //gl.disable(gl.BLEND);
-        return;
+      if (config.ENABLE_MASK) {
+        this.compile_shader(gl, ["USE_MASK"]);
       } else {
-        //gl.depthMask(false);
+        this.compile_shader(gl);
       }
 
-      gl.enable(gl.STENCIL_TEST);
-
-      let si = 1 + (this.stencili % 254);
-
-      gl.stencilFunc(gl.EQUAL, 128, 255);
-      gl.stencilOp(gl.INCR, gl.KEEP, gl.KEEP);
-
-      this.draw2(gl, matrix, "vertex", 1, alpha);
-
-      gl.stencilOp(gl.REPLACE, gl.KEEP, gl.KEEP);
-      this.draw2(gl, matrix, "vertex2", 1, alpha);
-
-      gl.stencilOp(gl.KEEP, gl.KEEP, gl.KEEP);
-      gl.stencilFunc(gl.EQUAL, 1, 1);
-
-      this.draw2(gl, matrix, "vertex", 1, alpha);
-
+      gl.disable(gl.DEPTH_TEST);
+      gl.depthMask(false);
+      /*
+      gl.enable(gl.DEPTH_TEST);
+      gl.depthMask(true);
+      gl.depthRange(0.0, 1.0);
+      gl.depthFunc(gl.LESS);
+      gl.clearDepth(1.0);
+      gl.clear(gl.DEPTH_BUFFER_BIT);
+      //*/
+      gl.disable(gl.CULL_FACE);
       gl.disable(gl.STENCIL_TEST);
-      this.draw2(gl, matrix, "vertex2", 0, alpha);
 
+
+      gl.enable(gl.BLEND);
+      //gl.disable(gl.BLEND);
+
+      //gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+
+      this.draw2(gl, matrix, "vertex", 1, alpha);
+
+      gl.disable(gl.DEPTH_TEST);
+      gl.depthMask(false);
+
+      //gl.depthMask(false);
+      //gl.disable(gl.DEPTH_TEST);
+      //gl.disable(gl.BLEND);
     }
 
     draw2(gl, matrix, buffer, shader, mul) {

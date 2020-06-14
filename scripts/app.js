@@ -574,6 +574,7 @@ define([
 
       this.gui.check("DRAW_ELEMENTS", "Draw Elements");
       this.gui.check("DRAW_MASK_BUFFERS", "Draw Mask Buffers");
+      this.gui.check("ENABLE_MASK", "Enable Mask");
 
       this.gui.button("clear", "Clear", () => {
         this.mesh = new mesh.Mesh();
