@@ -8,6 +8,81 @@ define([
 
   var exports = _util = {};
 
+  /** not cryptographic!*/
+  let HashDigest = exports.HashDigest = class HashDigest {
+    constructor() {
+      this.i = 0;
+      this._hash = 0;
+    }
+
+    reset() {
+      this.i = this._hash = 0;
+      return this;
+    }
+
+    hash(f) {
+      const mul = 12345; // (1<<13)-1;
+      let off = (1<<19)-1;
+
+      f = (~~(f * mul + off)) & off;
+
+      this.i = (this.i*mul + off) & off;
+
+      f = f ^ this.i;
+
+      this._hash = this._hash ^ f;
+      return this._hash;
+    }
+
+    get() {
+      return this._hash;
+    }
+  }
+
+  let colormap = {
+    "black"   : 30,
+    "red"     : 31,
+    "green"   : 32,
+    "yellow"  : 33,
+    "blue"    : 34,
+    "magenta" : 35,
+    "cyan"    : 36,
+    "white"   : 37,
+    "reset"   : 0,
+    "grey"    : 2,
+    "orange"  : 202,
+    "pink"    : 198,
+    "brown"   : 314,
+    "lightred": 91,
+    "peach"   : 210
+  }
+
+  let termColorMap = exports.termColorMap = {};
+  for (let k in colormap) {
+    termColorMap[k] = colormap[k];
+    termColorMap[colormap[k]] = k;
+  }
+
+  let termColor = exports.termColor = function termColor(s, c) {
+    if (typeof s === "symbol") {
+      s = s.toString();
+    } else {
+      s = "" + s;
+    }
+
+    if (c in colormap)
+      c = colormap[c]
+
+    if (c > 107) {
+      s2 = '\u001b[38;5;' + str(c) + "m"
+      return s2 + s + '\u001b[0m'
+    }
+
+    return '\u001b[' + c + 'm' + s + '\u001b[0m'
+  };
+
+  window.termColor = termColor;
+
   console.log("TYPESYSTEM", typesystem);
 
   //forward typesystem exports

@@ -3,9 +3,10 @@ let SVG_URL = "http://www.w3.org/2000/svg";
 
 define([
   "util", "mesh", "mesh_tools", "mesh_editor", "const", "simple_toolsys",
-  "transform", "events", "config", "ui", "image", "curve", "webgl", "fbo", "vectormath"
+  "transform", "events", "config", "ui", "image", "curve", "webgl", "fbo", "vectormath",
+  "pathmesh"
 ], function(util, mesh, mesh_tools, mesh_editor, cconst, toolsys,
-            transform, events, config, ui, image, curve, webgl, fbo, vectormath)
+            transform, events, config, ui, image, curve, webgl, fbo, vectormath, pathmesh)
 {
   'use strict';
   
@@ -101,7 +102,7 @@ define([
       this.editor = new mesh_editor.MeshEditor();
       this.editor.ctx = this.ctx;
       
-      this.pmesh = new curve.PathMesh();
+      this.pmesh = new pathmesh.PathMesh();
 
       //this.loadTiger();
       this.makeGUI();
@@ -586,6 +587,11 @@ define([
         this.loadTiger();
       });
 
+      this.gui.button("save", "Save", () => {
+        console.log("saving!");
+        this.save();
+      });
+
       /*
       this.gui.button("load_image", "Load Image", () => {
         console.log("load image!");
@@ -727,6 +733,9 @@ define([
 
         return path.make_point(p);
       }
+
+      let lastp = new Vector2();
+
       function makeCubic(v1, h1, h2, v2, path) {
         v1 = vscache.next().load(v1);
         v2 = vscache.next().load(v2);
@@ -750,6 +759,16 @@ define([
         //steps = Math.max(~~(arc/300.0), 2.0);
         //console.log(steps);
 
+        let _t1 = new Vector2();
+        let _t2 = new Vector2();
+
+        function colinear(a, b, c) {
+          _t1.load(a).sub(b).normalize();
+          _t2.load(c).sub(b).normalize();
+
+          return Math.abs(_t1.dot(_t2)) > 0.999;
+        }
+
         for (let i=0; i<steps; i++, s += ds) {
           let a = cubic2(h1, h2, v2, s);
           let da = dcubic2(h1, h2, v2, s);
@@ -772,9 +791,21 @@ define([
 
           tmp[0] = dx;
           tmp[1] = dy;
+          lastp.load(tmp);
 
+          if (i > 0 && colinear(lastp, a, b)) {
+            //console.error("Colinear!");
+            tmp.load(a).interp(b, 0.5);
+            //a[0] += (Math.random()-0.5)*10.0;
+            //a[1] += (Math.random()-0.5)*10.0;
+          }
+
+          //if (a.vectorDistance(b) < 0.1) {
+            //continue;
+          //}
           makepoint(path, a, v1);
           makepoint(path, tmp, v1);
+
         }
 
       }
@@ -951,6 +982,9 @@ define([
             window.redraw_all();
           } else if (e.ctrlKey && !e.altKey) {
             this.toolstack.undo();
+            window.redraw_all();
+          } else {
+            config.DRAW_ELEMENTS ^= 1;
             window.redraw_all();
           }
           break;

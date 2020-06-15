@@ -88,7 +88,7 @@ define([
 
   let shaders = exports.shaders = {};
 
-  class Render {
+  let Render =  exports.Render = class Render {
     constructor() {
       this.buffer = new webgl.RenderBuffer();
       this.regen = 1;
@@ -98,6 +98,9 @@ define([
       this.height = 200;
       this.stencili = 0;
       this.fillColor = [1, 0.5, 0.25, 1.0];
+      this.maskRes = [1, 1];
+      this.maskRatio = 1.0;
+      this.lastboxes = undefined;
 
       if (!STENCILMODE) {
         this.fan = undefined;
@@ -201,13 +204,15 @@ define([
         if (path.uvstart) {
           let s = path.uvstart, e = path.uvend;
 
-          uvs2.push(s[0]); uvs2.push(s[1]);
-          uvs2.push(s[0]); uvs2.push(e[1]);
-          uvs2.push(e[0]); uvs2.push(e[1]);
+          let eps = 0.005;
 
-          uvs2.push(s[0]); uvs2.push(s[1]);
-          uvs2.push(e[0]); uvs2.push(e[1]);
-          uvs2.push(e[0]); uvs2.push(s[1]);
+          uvs2.push(s[0]+eps); uvs2.push(s[1]+eps);
+          uvs2.push(s[0]+eps); uvs2.push(e[1]-eps);
+          uvs2.push(e[0]-eps); uvs2.push(e[1]-eps);
+
+          uvs2.push(s[0]+eps); uvs2.push(s[1]+eps);
+          uvs2.push(e[0]-eps); uvs2.push(e[1]-eps);
+          uvs2.push(e[0]-eps); uvs2.push(s[1]+eps);
         } else {
           for (let i=0; i<6; i++) {
             uvs2.push(0.0);
@@ -311,6 +316,62 @@ define([
       this.genNonStencil(gl);
     }
 
+    _useLastBoxes(boxes) {
+      console.log(this.lastboxes);
+
+      if (boxes.length === 0) {
+        return false;
+      }
+      if (!this.lastboxes) {
+        return false;
+      }
+
+      console.log(boxes.length, this.lastboxes.length, "---<");
+
+      if (boxes.length !== this.lastboxes.length) {
+        return false;
+      }
+
+      let visit = new Set();
+      let map = new Map();
+      let totw = 0;
+
+      for (let b1 of boxes) {
+        let minb = undefined, minw = undefined;
+
+        for (let b2 of this.lastboxes) {
+          if (visit.has(b2)) {
+            continue;
+          }
+
+          let w = Math.abs(b1.size[0]-b2.size[0]) + Math.abs(b1.size[1] - b2.size[1]);
+          w += Math.abs(b1.size[0]*b1.size[1] - b2.size[0]*b2.size[1]);
+
+          if (minw === undefined || w < minw) {
+            minw = w;
+            minb = b2;
+          }
+        }
+
+        if (minw === undefined) {
+          throw new Error("eek!");
+        }
+
+        totw += minw;
+
+        visit.add(minb);
+        map.set(b1, minb);
+      }
+
+      totw /= boxes.length;
+      if (totw > 500) {
+        return false;
+      }
+      console.warn("TOTW:", totw);
+
+      return map;
+    }
+
     genTex(gl) {
       let paths = new Set();
       for (let p of this.points) {
@@ -319,6 +380,33 @@ define([
 
       let packer = new boxpack.BoxPacker();
       let boxes = packer.boxes;
+      let minscale = 1;
+      
+      function interp() {
+        let t = arguments[0];
+
+        for (let i=1; i<arguments.length; i += 2) {
+          if (arguments[i] >= t) {
+            if (i > 1) {
+              let a = arguments[i-2];
+              let b = arguments[i];
+
+              let s = (t - a) / (b - a);
+
+              let c = arguments[i-1];
+              let d = arguments[i+1];
+
+              return c + (d - c)*s;
+            } else {
+              return arguments[i];
+            }
+          }
+        }
+
+        return arguments[arguments.length-1];
+      }
+
+      window.interp = interp;
 
       for (let path of paths) {
         path.recalc_aabb();
@@ -334,19 +422,28 @@ define([
         let dimen = Math.max(box.size[0], box.size[1]);
         let scale = 1.0;
 
-        if (dimen > 400) {
+        scale = Math.pow(dimen, 0.5) / dimen;
+
+        scale = interp(dimen, 0,0, 128,32, 512,50, 1024,65, 2048,80) / dimen;
+
+        /*
+        if (dimen > 700) {
+          scale = 0.025;
+        } else if (dimen > 400) {
           scale = 0.05;
         } else if (dimen > 256) {
-          scale = 0.1;
+          scale = 0.05;
         } if (dimen > 128) {
-          scale = 0.2;
+          scale = 0.1;
         } else if (dimen > 64) {
-          scale = 0.3;
+          scale = 0.2;
         } else if (dimen > 32) {
-          scale = 0.4;
+          scale = 0.3;
         } else if (dimen > 16) {
           scale = 0.5;
-        }
+        }*/
+
+        minscale = Math.min(minscale, scale);
 
         let s2 = 128 / dimen;
         //scale = Math.min(scale, s2);
@@ -357,11 +454,33 @@ define([
         packer.add(box);
       }
 
-      packer.pack();
+      let useLastBoxes = this._useLastBoxes(boxes);
+      console.warn("useLastBoxes:", useLastBoxes);
 
-      let size = packer.size;
-      size[0] = Math.max(size[0], 16);
-      size[1] = Math.max(size[1], 16);
+      let size;
+
+      if (useLastBoxes) {
+        size = this.lastboxes.size;
+        boxes = this.lastboxes;
+
+        for (let b1 of packer.boxes) {
+          if (!useLastBoxes.has(b1)) {
+            throw new Error("eek!");
+          }
+          let b2 = useLastBoxes.get(b1);
+          b2.path = b1.path;
+        }
+      } else {
+        this.maskRatio = 1.0 / minscale;
+        this.lastboxes = boxes;
+        packer.pack();
+
+        size = packer.size;
+        size[0] = Math.max(size[0], 16);
+        size[1] = Math.max(size[1], 16);
+
+        boxes.size = new Vector2(size);
+      }
 
       let oldf = gl.getParameter(gl.FRAMEBUFFER_BINDING);
       let fbuf = new fbo.FBO(size[0], size[1]);
@@ -438,11 +557,11 @@ define([
         uvs1.push(end);
 
         //*
-        box.pos.div(packer.size);
-        box.size.div(packer.size);
+        path.uvstart = new Vector2();
+        path.uvend = new Vector2();
 
-        path.uvstart = new Vector2(box.pos);
-        path.uvend = new Vector2(box.pos).add(box.size);
+        path.uvstart.load(box.pos).div(size);
+        path.uvend.load(box.size).div(size).add(path.uvstart);
         //*/
       }
 
@@ -484,6 +603,9 @@ define([
 
       fbuf.gen_buffers(gl);
       fbuf.bind(gl);
+
+      this.maskRes[0] = fbuf.size[0];
+      this.maskRes[1] = fbuf.size[1];
 
       gl.viewport(0, 0, fbuf.size[0], fbuf.size[1]);
       matrix.translate(-1, -1, 0)
@@ -568,6 +690,8 @@ define([
       uniform sampler2D mask;
       uniform float distBlur;
       uniform float T;
+      uniform vec2 maskRes;
+      uniform float maskRatio;
       
       varying vec2 vCo;
       varying vec4 vUv;
@@ -677,6 +801,10 @@ define([
         vec2 v1 = a - b;
         vec2 v2 = c - b;
         
+        if (dot(v1, v1) < 0.001 || dot(v2, v2) < 0.001) {
+          return true; 
+        }
+        
         v1 = normalize(v1);
         v2 = normalize(v2);
         
@@ -687,10 +815,16 @@ define([
       float get_distance_t(vec2 b0, vec2 b1, vec2 b2) {
         if (colinear(b0, b1, b2)) {
           vec2 v1 = b2 - b0;
+          float len = length(b2 - b0);
           
           v1 = normalize(v1);
           
-          return dot(-b0, v1) / length(b2 - b0);
+          if (len < 0.001) {
+            return 0.0;
+          }
+          
+          //b1 += vec2(-0.2, -0.35);
+          return dot(-b0, v1) / len;
         }
         
         float a = det(b0,b2), b = 2.0*det(b1,b0), d = 2.0*det(b2,b1);
@@ -855,7 +989,7 @@ define([
         //float inside = insidetri(p1, vec2(1000.0, 1000.0), p3, vCo);
         float inside2 = insidetri(p1, p2, p3, vCo);
         
-        if (p[3] < 9.0) {//inside2 != 0.0) {
+        if (p[3] < 10.0*maskRatio) {//inside2 != 0.0) {
           vec2 bdv = dquad2(p1, p2, p3, s);
           sign1 = safesign(bdv[0]*p4[1] - bdv[1]*p4[0]);
           
@@ -885,15 +1019,21 @@ define([
       ///p[1] = fract(p[1]*3.15);
       //p[2] = fract(p[2]*3.25);
       //p[0] /= (vUv[3] - vUv[2]) * 2.0;
-     // p[1] /= (vUv[3] - vUv[2]) * 2.0;
+      //p[1] /= (vUv[3] - vUv[2]) * 2.0;
       //p[2] /= (vUv[3] - vUv[2]) * 2.0;
       
       dis = abs(dis);
-      dis /= distBlur;
-      dis = min(dis, 1.0);
-      dis = dis*dis*(3.0 - 2.0*dis);
+      {
       
-      gl_FragColor = vec4(mix(vec3(1.0, 1.0, 1.0)*0.9, vec3(1.0,0.4,0.4)*0.5, 1.0-dis), 1.0);
+      float shade = dis;
+      shade /= distBlur;
+      shade = min(shade, 1.0);
+      shade = shade*shade*(3.0 - 2.0*shade);
+      
+      dis = min(dis/4.0, 1.0); 
+      gl_FragColor = vec4(mix(vec3(1.0, 1.0, 1.0)*0.9, vec3(1.0,0.4,0.4)*0.5, 1.0-shade), dis);
+      
+      }
 #endif
 
         dis = abs(dis);
@@ -1064,6 +1204,8 @@ define([
         texh: this.texh,
         tex: this.gltex,
         mask: this.texFbo ? this.texFbo.texColor : undefined,
+        maskRes : this.maskRes,
+        maskRatio : this.maskRatio,
         distBlur : config.DISTBLUR,
         T: window.T
       });
@@ -1077,7 +1219,7 @@ define([
     SELECT: 1
   };
 
-  class Point extends Vector2 {
+  let Point = exports.Point = class Point extends Vector2 {
     constructor(co, path) {
       super(co);
 
@@ -1141,352 +1283,7 @@ define([
     }
   }
 
-  var PathMesh = exports.PathMesh = class PathMesh {
-    constructor() {
-      this.eidgen = new util.IDGen();
-      this.eidmap = {};
-
-      this.paths = new ElementArray();
-      this.points = new ElementArray();
-      this.matrix = new vectormath.Matrix4();
-
-      this.drawers = [];
-      this.renders = [];
-
-      this.colorgen = 0;
-    }
-
-    sync_selection() {
-      for (var path of this.paths) {
-        path.points.selected.reset();
-
-        for (var p of path.points) {
-          if (p.flag & PointFlags.SELECT) {
-            path.points.selected.add(p);
-          }
-        }
-      }
-    }
-
-    on_new_point(p) {
-      this.points.push(p);
-    }
-
-    on_kill_point(p) {
-      if (this.points.selected.has(p)) {
-        this.points.selected.remove(p);
-      }
-
-      delete this.eidmap[p.eid];
-      this.points.remove(p);
-
-      if (p === this.points.highlight) {
-        this.points.highlight = undefined;
-      }
-      if (p === this.points.active) {
-        this.points.active = undefined;
-      }
-    }
-
-    recalc_aabb() {
-      for (var path of this.paths) {
-        path.recalc_aabb();
-      }
-    }
-
-    clear_selection() {
-      this.points.selected.reset();
-
-      for (var p of this.points) {
-        p.flag &= ~PointFlags.SELECT;
-      }
-
-      this.sync_selection();
-    }
-
-    regen_render() {
-      for (let r of this.renders) {
-        //r.reset(this.gl);
-        r.regen = 1;
-      }
-
-      for (var path of this.paths) {
-        path.regen_render();
-      }
-    }
-
-    new_fillcolor(path) {
-      var t = this.colorgen * Math.PI * 15.5;
-      path.fillcolor[0] = Math.sin(t) * 0.5 + 0.5;
-      path.fillcolor[1] = Math.cos(t * 2.0) * 0.5 + 0.5;
-      path.fillcolor[2] = Math.sin(t * 3.0 + 0.3524) * 0.5 + 0.5;
-      this.colorgen += 1;
-    }
-
-    make_path() {
-      if (this.renders.length === 0) {
-        let render = new Render();
-        this.renders.push(render);
-      }
-
-      let render = this.renders[this.renders.length - 1];
-
-      var path = new QuadraticPath(undefined, undefined, render, this);
-
-      path.index = this.paths.length;
-      path.eidgen = this.eidgen;
-      path.eid = this.eidgen.next();
-
-      this.eidmap[path.eid] = path;
-      this.paths.push(path);
-
-      this.new_fillcolor(path);
-
-      path.on_new_point = this.on_new_point.bind(this);
-      path.on_kill_point = this.on_kill_point.bind(this);
-
-      return path;
-    }
-
-    kill_path(path) {
-      if (path === this.paths.highlight)
-        this.paths.highlight = undefined;
-      if (path === this.paths.highlight)
-        this.paths.highlight = undefined;
-      if (this.paths.selected.has(path)) {
-        this.paths.selected.remove(path);
-      }
-
-      delete this.eidmap[path.eid];
-      this.paths.remove(path);
-    }
-
-    destroy(gl) {
-      for (let path of this.paths) {
-        path.destroy(gl);
-      }
-
-      for (let d of this.drawers) {
-        d.destroy(gl);
-      }
-
-      for (let r of this.renders) {
-        r.destroy(gl);
-      }
-    }
-
-    reset(gl) {
-      this.colorgen = 0;
-      this.destroy(gl);
-
-      this.renders.length = 0;
-      this.paths.length = new ElementArray();
-      this.points = new ElementArray();
-      this.eidmap = {};
-      this.drawers = [];
-    }
-
-    resort() {
-      console.log("resort!");
-      for (let d of this.drawers) {
-        d.destroy(this.gl);
-      }
-
-      this.drawers = [];
-      if (this.paths.length === 0)
-        return;
-
-      var drawer = new fbo.PathDrawer();
-      //this.paths[0].blur = 40;
-      drawer.blur = this.paths[0].blur;
-      this.drawers.push(drawer);
-      let rvisit = new Set();
-
-      for (var path of this.paths) {
-        if (drawer.blur !== path.blur) {
-          drawer = new fbo.PathDrawer();
-          drawer.blur = path.blur;
-          rvisit = new Set();
-          this.drawers.push(drawer);
-        }
-
-        drawer.paths.push(path);
-        if (!rvisit.has(path.render)) {
-          rvisit.add(path.render);
-          drawer.renders.push(path.render);
-        }
-      }
-
-      let totpoint = 0;
-      for (let r of this.renders) {
-        totpoint += r.points.length;
-      }
-      console.log("total vertices:", totpoint);
-    }
-
-    draw(gl, width, height) {
-      this.gl = gl;
-
-      gl.disable(gl.CULL_FACE);
-      gl.disable(gl.DEPTH_TEST);
-      gl.disable(gl.DITHER);
-
-      var mat = this.matrix;
-
-      mat.makeIdentity();
-      mat.translate(-1.0, -1.0, 0.0);
-
-      mat.scale(2.0 / width, 2.0 / height, 1.0);
-      if (STENCILMODE) gl.clearStencil(0);
-
-      for (var path of this.paths) {
-        if (path.blur === undefined) {
-          path.blur = 0;
-        }
-
-        if (path.blur !== path._lastblur) {
-          this.resort();
-          break;
-        }
-      }
-
-      for (var path of this.paths) {
-        path._lastblur = path.blur;
-      }
-
-      /*
-      if (this.drawers.length == 0) {
-        this.drawers.push(new fbo.PathDrawer());
-      }
-      
-      var drawer = this.drawers[0];
-      for (var path of this.paths) {
-        var drawer;
-        
-        if (path.drawer != undefined && path.drawer.blur != path.blur) {
-          path.drawer.paths.remove(path);
-          path.drawer = undefined;
-        }
-        
-        for (var j=0; j<this.drawers.length; j++) {
-          drawer = this.drawers[j];
-          
-          if (drawer.blur == path.blur) {
-            break;
-          }
-        }
-        
-        if (j == this.drawers.length) {
-          drawer = new fbo.PathDrawer();
-          drawer.blur = path.blur;
-          this.drawers.push(drawer);
-        }
-        
-        if (drawer.paths.indexOf(path) < 0) {
-          drawer.paths.push(path);
-          path.drawer = drawer;
-        }
-      }*/
-
-      if (STENCILMODE) gl.clear(gl.STENCIL_BUFFER_BIT);
-
-
-      for (var i = 0; i < this.drawers.length; i++) {
-        //for (var i=this.drawers.length-1; i>=0; i--) {
-        if (STENCILMODE) gl.clear(gl.STENCIL_BUFFER_BIT);
-        this.drawers[i].draw(gl, width, height, this.drawers[i].blur)
-      }
-
-      for (let r of this.renders) {
-        if (r.texFbo && config.DRAW_MASK_BUFFERS) {
-          r.texFbo.draw(gl, 0.05, 0.05, 500, 500);
-        }
-      }
-      gl.enable(gl.BLEND);
-
-      fbo.flushFBOPool(gl);
-    }
-
-    toJSON() {
-      var vs = [], ps = [];
-
-      for (var i = 0; i < this.points.length; i++) {
-        vs.push(this.points[i]);
-      }
-      for (var i = 0; i < this.paths.length; i++) {
-        ps.push(this.paths[i]);
-      }
-
-      return {
-        eidgen: this.eidgen,
-        points: vs,
-        paths: ps,
-        colorgen: this.colorgen
-      }
-    }
-
-    static fromJSON(obj) {
-      var ret = new PathMesh();
-
-      ret.colorgen = obj.colorgen;
-      ret.eidgen = util.IDGen.fromJSON(obj.eidgen);
-
-      for (var i = 0; i < obj.points.length; i++) {
-        var p = Point.fromJSON(obj.points[i]);
-
-        ret.eidmap[p.eid] = p;
-        ret.points.push(p);
-
-        if (p.flag & PointFlags.SELECT) {
-          ret.points.selected.add(p);
-        }
-      }
-
-      let render = new Render();
-      ret.renders.push(render);
-
-      for (var i = 0; i < obj.paths.length; i++) {
-        var jpath = obj.paths[i];
-
-        var path = new QuadraticPath(undefined, undefined, render);
-
-        path.eidmap = ret.eidmap;
-        path.eidgen = ret.eidgen;
-        path.blur = jpath.blur;
-
-        //ret.new_fillcolor(path);
-
-        path.aabb[0].load(jpath.aabb[0]);
-        path.aabb[1].load(jpath.aabb[1]);
-        path.fillcolor = new vectormath.Vector4(jpath.fillcolor); //Float32Array(jpath.fillcolor);
-
-        path.on_new_point = ret.on_new_point.bind(ret);
-        path.on_kill_point = ret.on_kill_point.bind(ret);
-
-        for (var j = 0; j < jpath.points.length; j++) {
-          var p = ret.eidmap[jpath.points[j].eid];
-
-          path.points.push(p);
-          p.path = path;
-
-          if (p.flag & PointFlags.SELECT) {
-            path.points.selected.add(p);
-          }
-
-          if (p.eid == jpath.active_point) {
-            path.points.active = p;
-          }
-        }
-
-        ret.eidmap[path.eid] = path;
-        ret.paths.push(path);
-
-        path.recalc_aabb();
-      }
-
-      return ret;
-    }
-  }
+  let digests = util.cachering.fromConstructor(util.HashDigest, 32);
 
   //quadratic bezier path
   var QuadraticPath = exports.QuadraticPath = class QuadraticPath {
@@ -1519,6 +1316,7 @@ define([
       this.eidmap = {};
 
       this.points = [];
+      this.hash = -1;
       this.points.selected = new util.set();
 
       this.points.setselect = function (p, val) {
@@ -1536,8 +1334,25 @@ define([
       }
     }
 
-    regen_render() {
+    calcHash() {
+      let hash = digests.next().reset();
+      let count = 0;
 
+      for (let p of this.points) {
+        let x = ~~(p[0]*8), y = ~~(p[1]*8);
+
+        hash.hash(x);
+        hash.hash(y);
+        count++;
+      }
+
+      hash.hash(count);
+      this.hash = hash.get();
+
+      return this.hash;
+    }
+
+    regen_render() {
     }
 
     destroy(gl) {
